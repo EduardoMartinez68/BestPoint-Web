@@ -5,77 +5,146 @@ use Dotenv\Dotenv;
 use Stripe\Stripe;
 use Stripe\Checkout\Session;
 
-// Cargar variables de entorno
+// load variable of hub
 $dotenv = Dotenv::createImmutable(__DIR__);
 $dotenv->load();
 
-// Configuración de Stripe
+// setting of stripe
 Stripe::setApiKey($_ENV['APP_PASSWORD_STRIPE']);
 
-// Obtener el ID de la sesión de pago de Stripe
+// get the session id el ID for stripe
 $session_id = $_GET['session_id'] ?? null;
 
+
+//if not exist a session id show a error
 if (!$session_id) {
-    echo "No se ha proporcionado un ID de sesión.";
+    header("Location: links/error.php");
     exit();
 }
 
-// Consultar la base de datos
-$pdo = new PDO('mysql:host=localhost;dbname=BestPoint', 'root', ''); // Asegúrate de usar las credenciales correctas
-$stmt = $pdo->prepare("SELECT * FROM license WHERE session_id = :session_id");
-$stmt->execute([':session_id' => $session_id]);
-$license = $stmt->fetch();
+// connection with the database
+require 'library/database.php';
+$connection=connect_database();
+$query = "SELECT * FROM license WHERE session_id = '$session_id'";
+$result=mysqli_query($connection,$query);
 
-$button="<center><a href='BestPoint.zip' class='button-download'>Descargar</a></center>";
+//this is for know if all continue success and not exist a error
+$continue=true;
 
-if ($license) {
-    // obtenemos los datos guardados con anterioridad en la base de datos
-    $customer_email = $license['customer_email'];
-    $customer_name = $license['customer_name'];
-    $password = $license['password'];
+//we see if exist a error to connection the database
+if (!$result){
+    header("Location: links/error.php");
+    exit();
+}
+
+// if we can connection the database, read all the results
+if (mysqli_num_rows($result) > 0) {
+    //we will get the data of the buy old
+    while ($row = mysqli_fetch_assoc($result)) {
+        // get the data of the buy
+        $customer_email = $row['customer_email'];
+        $customer_name = $row['customer_name'];
+        $token = $row['token'];
+        $password = $row['password'];
+    }
 } else {
+    //we will see if the buy is success
     try {
-        $session = Session::retrieve($session_id);
-
-        if ($session->payment_status === 'paid') {
-            //crearemos una password para el usuario 
-            $caracteres = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
-            $numeros = '0123456789';
-        
-            $password = '';
-        
-            // Añadir 5 caracteres aleatorios
-            for ($i = 0; $i < 5; $i++) {
-                $password .= $caracteres[rand(0, strlen($caracteres) - 1)];
-            }
-        
-            // Añadir 3 números aleatorios
-            for ($i = 0; $i < 3; $i++) {
-                $password .= $numeros[rand(0, strlen($numeros) - 1)];
-            }
-        
-            // Mezclar la contraseña para garantizar una distribución aleatoria
-            $password = str_shuffle($password);
-
-
+        $session = Session::retrieve($session_id); //get the session id
+        if ($session->payment_status === 'paid'){
+            //get the data of the buy
             $customer_email = $session->customer_details->email;
             $customer_name = $session->customer_details->name;
-            // Guarda la información en la base de datos
-            $stmt = $pdo->prepare("INSERT INTO license (session_id, customer_email, customer_name) VALUES (:session_id, :customer_email, :customer_name, :password)");
-            $stmt->execute([
-                ':session_id' => $session_id,
-                ':customer_email' => $customer_email,
-                ':customer_name' => $customer_name,
-                ':password' => $password
-            ]);
+            $token=create_token();
+            $password=create_password();
+
+            // save the information in the database
+            if (!save_data_token($connection, $session_id, $customer_email, $customer_name, $token, $password)){
+                //if the information not can save in the database show a message of error
+                header("Location: links/error.php");
+                exit();
+            }
+
+            require 'library/sendEmail.php';
+            $link='https://capacitatkocina.com/message.php?session_id='.$session_id;
+            send_email($link,$customer_email, $recipient_name, $token, $password);
         } else {
             echo "La compra no se completó.";
+            $continue=false;
         }
     } catch (Exception $e) {
         echo "Error al verificar el pago: " . $e->getMessage();
+        $continue=false;
     }
 }
 
+// close connection
+mysqli_close($connection);
+
+
+//if exist a error, render the error UI 
+if(!$continue){
+    header("Location: links/error.php");
+    exit();
+}
+
+
+
+
+
+function create_password(){
+    //crearemos una password para el usuario 
+    $caracteres = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    $numeros = '0123456789';
+
+    $password = '';
+
+    // Añadir 5 caracteres aleatorios
+    for ($i = 0; $i < 5; $i++) {
+        $password .= $caracteres[rand(0, strlen($caracteres) - 1)];
+    }
+
+    // Añadir 3 números aleatorios
+    for ($i = 0; $i < 3; $i++) {
+        $password .= $numeros[rand(0, strlen($numeros) - 1)];
+    }
+
+    // Mezclar la contraseña para garantizar una distribución aleatoria
+    $password = str_shuffle($password);
+    return $password;
+}
+
+function create_token(){
+    // Caracteres permitidos para el token
+    $characters = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    $charactersLength = strlen($characters);
+    $token = '';
+
+    // Generar un token de 5 caracteres
+    for ($i = 0; $i < 5; $i++) {
+        $token .= $characters[rand(0, $charactersLength - 1)];
+    }
+
+    return $token;
+}
+
+function save_data_token($connection, $session_id, $customer_email, $customer_name, $token, $password) {
+    $session_id = mysqli_real_escape_string($connection, $session_id);
+    $customer_email = mysqli_real_escape_string($connection, $customer_email);
+    $customer_name = mysqli_real_escape_string($connection, $customer_name);
+    $token = mysqli_real_escape_string($connection, $token);
+    $password = mysqli_real_escape_string($connection, $password);
+
+    $query = "INSERT INTO license (session_id, customer_email, customer_name, token, password) VALUES ('$session_id', '$customer_email', '$customer_name', '$token', '$password')";
+    
+    $result = mysqli_query($connection, $query);
+
+    if ($result) {
+        return true;
+    } else {
+        return false;
+    }
+}
 
 // Imprimir los datos de la compra
 $purchase_details = "
@@ -192,8 +261,9 @@ $purchase_details = "
         <div class=\"credentials\">
             <p><strong>Email:</strong> $customer_email</p>
             <p><strong>Nombre:</strong> $customer_name</p>
+            <p><strong>Token:</strong> $token</p>
             <p><strong>Password:</strong> $password</p>
-            $button
+            <center><a href='BestPoint.zip' class='button-download'>Descargar</a></center>
         </div>
     </div>
 </body>

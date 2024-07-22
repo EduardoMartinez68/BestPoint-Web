@@ -103,6 +103,7 @@ img {
 
 footer {
     background-color: #05215E;
+    background-color: linear-gradient(135deg, #051C55, #4a90e2);
     text-align: center;
     padding: 20px;
 }

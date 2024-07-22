@@ -16,7 +16,7 @@
     require 'vendor/autoload.php';
     \Stripe\Stripe::setApiKey($stripeSecret);
 
-    $link='http://localhost/BestPoint'; //este debe ser el link de la pagina
+    $link='https://capacitatkocina.com';//'http://localhost/BestPoint'; //este debe ser el link de la pagina
 
     if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $YOUR_DOMAIN = $link;

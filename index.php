@@ -218,6 +218,7 @@
         <div class="container">
             <h2><i class="fi fi-ss-rocket-lunch"></i> BestPoint</h2>
             <p>¡Gracias por visitar nuestra página!</p>
+            <br>
             <p onclick="contactarPorWhatsApp()" style="cursor: pointer;">Para más información, contáctanos al: +52 444 304 2129</p>
         </div>
     </footer>
